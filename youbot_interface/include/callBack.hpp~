@@ -1,0 +1,49 @@
+
+#include <iostream>
+#include <stdio.h>
+#include <ros/ros.h>
+#include <std_msgs/Char.h>
+#include <std_msgs/String.h>
+#include <string>
+#include <algorithm>
+#include <iterator>
+#include <sstream>
+#include <vector>
+#include <map>
+
+//#include "pitt_msgs/TrackedShape.h"
+//#include "pitt_msgs/TrackedShapes.h"
+//#include "pitt_msgs/ClustersOutput.h"
+
+using namespace std;
+/*
+typedef ::pitt_msgs::TrackedShapes_<std::allocator<void> > TrackedShapes;
+typedef ::pitt_msgs::TrackedShape_<std::allocator<void> > TrackedShape;
+
+
+using namespace pitt_msgs;
+*/
+class API_PITT {
+	public:
+		int NoObjects;		//! No of Objects in working space
+		float** objectFeature;	//! Objects Features
+		float regionOperating[6];
+		float regionGoal[6];
+
+		API_PITT(void);
+		~API_PITT();
+/*		void CallBackShapes(const TrackedShapes& outShapes);
+//		void CallBackClusters(const ClustersOutputConstPtr& clusterObj);
+
+		void boundBoxSphere( const TrackedShape&, const int);
+		void boundBoxCylinder( const TrackedShape&, const int);
+*/
+
+	private:
+		ros::NodeHandle nh;
+//		ros::Subscriber sub_shapes;
+
+//		 TrackedShape::Ptr outShape;
+
+
+};

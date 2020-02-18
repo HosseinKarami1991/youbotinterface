@@ -1,0 +1,436 @@
+
+#include "callBack.hpp"
+
+API_PITT::API_PITT(int nosphere,int nocylinder,int noplane,int nocone,int nounknown):NoSphere(nosphere),NoCylinder(nocylinder),NoPlane(noplane),NoCone(nocone),NoUnknown(nounknown){
+
+//	RANSAC parameter Initialization
+	NoObjects=NoSphere+NoCylinder+NoPlane;
+	NoObstacles=NoSphere+NoCylinder;
+	NoCorrectRecognizedObject=0;
+
+
+EstimatedNoSphere=0;
+EstimatedNoCylinder=0;
+EstimatedNoPlane=0;
+EstimatedNoCone=0;
+EstimatedNoUnknown=0;
+
+	objectFeatureBox=new float* [NoSphere+NoCylinder];
+	objectFeatureBall=new float* [NoSphere+NoCylinder];
+	goalID=100;
+
+	for (int i=0;i<NoSphere+NoCylinder;i++){
+		objectFeatureBox[i]=new float [6]; 	//! 6: 1-3: center ; 4-6: size
+		objectFeatureBall[i]=new float [4];	//! center: x,y,z,radius
+	}
+
+	obstacleSafetyFactor=1.0;//1.5, 2.5
+	obstacleSafetyFactorX=1.1;
+	obstacleSafetyFactorY=3.5;
+	obstacleSafetyFactorZ=2.0;
+
+	for (int i=0;i<NoSphere+NoCylinder;i++)
+		for (int j=0;j<6;j++)
+			objectFeatureBox[i][j]=0;
+
+	for (int i=0;i<NoSphere+NoCylinder;i++)
+		for (int j=0;j<4;j++)
+			objectFeatureBall[i][j]=0;
+//	Path planner initialization:
+	for(int i=0;i<6;i++) {
+		regionGoal[0][i]=0;
+		regionGoal[1][i]=0;
+		regionGoal[2][i]=0;
+		regionOperating[i]=0;
+		initPosLeftArm[i]=0;
+		initPosRightArm[i]=0;
+		initPos[0][i]=0.0;
+		initPos[1][i]=0.0;
+		initPos[2][i]=0.0;
+		tTo1_arr[i]=0.0;
+		tTo2_arr[i]=0.0;
+	}
+
+	regionOperating[0]=0.85;	regionOperating[1]=0.03;	regionOperating[2]=0.33;	//! center
+	regionOperating[3]=0.80;	regionOperating[4]=1.4;		regionOperating[5]=0.50;		//! size
+
+	regionGoal[0][0]=0.65;	regionGoal[0][1]=0.15;	regionGoal[0][2]= 0.19;	//! center
+	regionGoal[0][3]=0.03;	regionGoal[0][4]=0.03;	regionGoal[0][5]=0.03;			//! size
+
+	regionGoal[1][0]=0.78;	regionGoal[1][1]=-0.20;	regionGoal[1][2]= -0.19;	//! center
+	regionGoal[1][3]=0.03;	regionGoal[1][4]=0.03;	regionGoal[1][5]=0.03;			//! size
+
+	regionGoal[2][0]=0.84;	regionGoal[2][1]=-0.15;	regionGoal[2][2]= 0.24;//0.27	//! center
+	regionGoal[2][3]=0.03;	regionGoal[2][4]=0.03;	regionGoal[2][5]=0.03;			//! size
+
+	orientationGoal[0][0]=3.14; orientationGoal[0][1]=0.0; orientationGoal[0][2]=-3.14; // left:     yaw, pitch,roll
+	orientationGoal[1][0]=3.14; orientationGoal[1][1]=0.0; orientationGoal[1][2]=-3.14; // right:    yaw, pitch,roll
+	orientationGoal[2][0]=0.0; orientationGoal[2][1]=-0.65; orientationGoal[2][2]=0.0; // Bimanual: yaw, pitch,roll
+
+//	controller parameters initialization:
+	control_ack_flag[0]			=true;
+	control_ack_flag[1]			=true;
+	control_ack_flag[2]			=true;
+	hri_control_goal_flag[0]	=true;
+	hri_control_goal_flag[1]	=true;
+	hri_control_goal_flag[2]	=true;
+	rob_goal_reach_flag[0]		=true;
+	rob_goal_reach_flag[1]		=true;
+	rob_goal_reach_flag[2]		=true;
+	pitt_call_back_flag			=true;
+
+
+	sub_shapes	=nh.subscribe("ransac_segmentation/trackedShapes",10, &API_PITT::CallBackShapes, this);
+	sub_LeftArmwTt=nh.subscribe("wTt_leftArm",10, &API_PITT::CallBackArmwTtLeft, this);
+	sub_RightArmwTt=nh.subscribe("wTt_rightArm",10, &API_PITT::CallBackArmwTtRight, this);
+	sub_CtrlAck	=nh.subscribe("hri_control_ack",80, &API_PITT::ControlAckCallBack, this);
+	pub_ctrl_task_param	=nh.advertise<controlCommnad_msgs::controlTaskParam>("ctrl_tasks_param",1);
+}
+API_PITT::~API_PITT(){
+	for(int i=0;i<NoSphere+NoCylinder;i++){
+		delete [] objectFeatureBox[i];
+		delete [] objectFeatureBall[i];
+	}
+	delete [] objectFeatureBox;
+}
+
+void API_PITT::CallBackArmwTtLeft(const geometry_msgs::Accel& msg){
+	// out put of interface is with this oreder: [yaw pitch roll x y z]
+	initPos[0][0]=msg.angular.x;   	//yaw
+	initPos[0][1]=msg.angular.y;	//pitch
+	initPos[0][2]=msg.angular.z;	//roll
+	initPos[0][3]=msg.linear.x;		//x
+	initPos[0][4]=msg.linear.y;	 	//y
+	initPos[0][5]=msg.linear.z;		//z
+}
+void API_PITT::CallBackArmwTtRight(const geometry_msgs::Accel& msg){
+	// out put of interface is with this oreder: [yaw pitch roll x y z]
+	initPos[1][0]=msg.angular.x;
+	initPos[1][1]=msg.angular.y;
+	initPos[1][2]=msg.angular.z;
+	initPos[1][3]=msg.linear.x;
+	initPos[1][4]=msg.linear.y;
+	initPos[1][5]=msg.linear.z;
+}
+void API_PITT::pathInitialPoint(const int arm_state_no){
+if (arm_state_no==0){
+
+
+}
+if (arm_state_no==1){
+
+
+}
+if (arm_state_no==2){
+
+
+}
+
+
+
+}
+
+void API_PITT::CallBackShapes(const TrackedShapes& outShapes){
+	 TrackedShape::Ptr outShape ( new TrackedShape);
+	 int obj_counter=0; //! No of objects that ransac recognize and is not unknown
+	 NoCorrectRecognizedObject=0;
+	 if (pitt_call_back_flag==true){
+		 EstimatedNoSphere=0;
+		 EstimatedNoCylinder=0;
+		 EstimatedNoPlane=0;
+		 EstimatedNoCone=0;
+		 EstimatedNoUnknown=0;
+
+		 objectsVector.clear();
+
+
+	for (int i=0;i<outShapes.tracked_shapes.size();i++){
+//		cout<<outShapes.tracked_shapes[i].shape_tag<<endl;
+
+		if (outShapes.tracked_shapes[i].shape_tag=="sphere"){
+			int objID=outShapes.tracked_shapes[i].object_id;
+			TrackedShape tracked_Shape=outShapes.tracked_shapes[i];
+			objectsVector.emplace_back(make_shared <pittObjects::Sphere>(objID,tracked_Shape));
+			EstimatedNoSphere++;
+//			objectsVector2.push_back(new pittObjects::Sphere(objID,tracked_Shape)); // as am example keep here this one.
+			float vecBall6[6],vecBox6[6];
+			if (!objectsVector.empty()){
+				objectsVector.back()->BoundingBox(vecBox6);
+				objectsVector.back()->BoundingBall(vecBall6);
+				objectsVector.back()->FrameSet();
+
+			}
+//
+//			boundBoxSphere(outShapes.tracked_shapes[i],obj_counter);
+//			boundBallSphere(outShapes.tracked_shapes[i],obj_counter);
+//			goalCenterSet(outShapes.tracked_shapes[i],obj_counter);
+//			NoCorrectRecognizedObject++;
+		}
+//		if (outShapes.tracked_shapes[i].shape_tag=="cylinder")
+//			boundBoxCylinder(outShapes.tracked_shapes[i],obj_counter);
+
+		if (outShapes.tracked_shapes[i].shape_tag=="plane"){
+			int objID=outShapes.tracked_shapes[i].object_id;
+			TrackedShape tracked_Shape=outShapes.tracked_shapes[i];
+			objectsVector.emplace_back(make_shared <pittObjects::Plane>(objID,tracked_Shape));
+			EstimatedNoPlane++;
+//			planeFrameSet(outShapes.tracked_shapes[i],100);
+//			NoCorrectRecognizedObject++;
+		}
+
+		if (outShapes.tracked_shapes[i].shape_tag=="cylinder"){
+			int objID=outShapes.tracked_shapes[i].object_id;
+			TrackedShape tracked_Shape=outShapes.tracked_shapes[i];
+			objectsVector.emplace_back(make_shared <pittObjects::Cylinder>(objID,tracked_Shape));
+			EstimatedNoCylinder++;
+		}
+
+		if (outShapes.tracked_shapes[i].shape_tag=="cone"){
+			int objID=outShapes.tracked_shapes[i].object_id;
+			TrackedShape tracked_Shape=outShapes.tracked_shapes[i];
+			objectsVector.emplace_back(make_shared <pittObjects::Cone>(objID,tracked_Shape));
+			EstimatedNoCone++;
+		}
+
+		if (outShapes.tracked_shapes[i].shape_tag=="unknown"){
+			int objID=outShapes.tracked_shapes[i].object_id;
+			TrackedShape tracked_Shape=outShapes.tracked_shapes[i];
+			objectsVector.emplace_back(make_shared <pittObjects::Unknown>(objID,tracked_Shape));
+			EstimatedNoUnknown++;
+		}
+
+		if (outShapes.tracked_shapes[i].shape_tag=="sphere")
+					obj_counter++;
+	}
+	if (NoSphere==EstimatedNoSphere && NoPlane==EstimatedNoPlane && NoCylinder==EstimatedNoCylinder
+			&& NoCone==EstimatedNoCone && NoUnknown==EstimatedNoUnknown){
+		cout<<"*** Scene Recognition Is Correct ***"<<endl;
+		cout<<"objectsVector.size: "<<objectsVector.size()<<endl;
+
+//		cout<<"Normal Vector"<<endl;
+//		for (int i=0;i<objectsVector2.size();i++){
+//			cout<<objectsVector2[i]<<endl;
+//			objectsVector2[i]->Print();
+//		}
+//		cout<<"=================================="<<"Shared_ptr Vector"<<endl;
+		for (int i=0;i<objectsVector.size();i++){
+			cout<<objectsVector[i]<<endl;
+			objectsVector[i]->Print();
+		}
+		pitt_call_back_flag=false;
+	}
+	else{
+		cout<<">>>>>> Scene Recognition Is 'NOT' Correct <<<<<<"<<endl;
+		cout<<"Normal Vector"<<endl;
+//		cout<<"objectsVector2.size(): "<<objectsVector2.size()<<endl;
+//		for(vector<pittObjects::Objects *>::iterator it = objectsVector2.begin(); it != objectsVector2.end(); ++it) {
+//		  delete (*it);
+//		}
+//		objectsVector2.clear();
+//		cout<<"objectsVector2.size(): "<<objectsVector2.size()<<endl;
+//
+//		cout<<"=================================="<<"Shared_ptr Vector"<<endl;
+		cout<<"objectsVector2.size(): "<<objectsVector.size()<<endl;
+		objectsVector.clear();
+		cout<<"objectsVector.size(): "<<objectsVector.size()<<endl;
+	}
+
+}
+	cout<<"===================="<<endl;
+}
+void API_PITT::goalCenterSet(const TrackedShape& outShape,const int index){ //for grasping objects
+	if (outShape.coefficients[3]<0.05){
+//		goalID=index;
+//	regionGoal[0]=outShape.x_est_centroid;
+//	regionGoal[1]=outShape.y_est_centroid;
+//	regionGoal[2]=outShape.z_est_centroid;
+	}
+}
+void API_PITT::planeFrameSet(const TrackedShape& outShape, const int index){
+//	Zp=Zw,
+	cout<<"planeFrameSet"<<endl;
+	cout<<outShape.x_pc_centroid<<" "<<outShape.y_pc_centroid<<" "<<outShape.z_pc_centroid<<endl;
+	cout<<outShape.coefficients[0]<<" "<<outShape.coefficients[1]<<" "<<outShape.coefficients[2]<<" "<<outShape.coefficients[3]<<" "<<endl;
+
+	goalID=index;
+	float teta;
+	float normalVec[3];
+	float worldvector[3];
+	float planeSize[2];
+	normalVec[0]=outShape.coefficients[0];//a
+	normalVec[1]=outShape.coefficients[1];//b
+	normalVec[2]=outShape.coefficients[2];//c
+	worldvector[0]=0.0;
+	worldvector[1]=0.0;
+	worldvector[2]=1.0;
+
+	float cos_teta=normalVec[0]/(sqrt(normalVec[0]*normalVec[0]+normalVec[1]*normalVec[1]+normalVec[2]*normalVec[2]));
+	if (normalVec[1]>0.0)
+		teta=acos(cos_teta);
+	else
+		teta=-1.0*acos(cos_teta);
+
+	initPos[2][0]=teta;//+ 3.1415;   	//yaw
+	initPos[2][1]=0.0;	//pitch
+	initPos[2][2]=0.0;	//roll
+	initPos[2][3]=outShape.x_pc_centroid;		//x
+	initPos[2][4]=outShape.y_pc_centroid;	 	//y
+	initPos[2][5]=outShape.z_pc_centroid-0.02;		//z
+
+	planeSize[0]=0.2;//cm in Yp direction
+	planeSize[1]=0.1;//cm in Yp direction
+	cout<<"teta: "<<teta<<endl;
+}
+
+void API_PITT::biManualControlCmndParameters(void){
+
+	CMAT::TransfMatrix wTt1,wTt2,wTo ;
+	CMAT::Vect6 r_tool, l_tool, objPose;
+	CMAT::TransfMatrix tTo1, tTo2, wTg,tTo2_2;
+
+	for (int i = 0; i < 6; ++i) {
+		l_tool(i+1) = initPos[0][i];
+		r_tool(i+1) = initPos[1][i];
+		objPose(i+1) = initPos[2][i];
+	}
+
+	wTt1 = l_tool.Vect2TmatrixEsa();
+	wTt2 = r_tool.Vect2TmatrixEsa();
+	wTo = objPose.Vect2TmatrixEsa();
+//	wTo.SetRotMatrix(CMAT::Matrix::Eye(3));
+
+	tTo1 = wTt1.Inverse() * wTo;
+	tTo2 = wTt2.Inverse() * wTo;
+	tTo2_2=wTt2.Inverse() *wTt1*tTo1 ;
+
+	tTo1.Tmatrix2VectEsa().CopyTo(tTo1_arr);
+	tTo2.Tmatrix2VectEsa().CopyTo(tTo2_arr);
+
+	l_tool.Transpose().PrintMtx("l_tool");
+	r_tool.Transpose().PrintMtx("r_tool");
+
+	wTt1.PrintMtx("wTt1");
+	wTt2.PrintMtx("wTt2");
+	wTo.PrintMtx("wTo");
+	tTo1.PrintMtx("tTo1");
+	tTo2.PrintMtx("tTo2");
+	tTo2_2.PrintMtx("tTo2_2");
+}
+
+void API_PITT::publishControlTasksParam(void){
+	ControlTaskParameters.obstFrames.resize(1);
+	ControlTaskParameters.obstHeights.resize(1);
+	cout<<"publishControlTasksParam"<<endl;
+
+	for (int i=0;i<NoObstacles;i++){
+		if (objectFeatureBall[i][1]>=objectFeatureBall[0][1] && objectFeatureBall[i][1]>=objectFeatureBall[1][1] ){
+		ControlTaskParameters.obstFrames[0].cartesianPosition[0]=0.0;
+		ControlTaskParameters.obstFrames[0].cartesianPosition[1]=0.0;
+		ControlTaskParameters.obstFrames[0].cartesianPosition[2]=0.0;
+		ControlTaskParameters.obstFrames[0].cartesianPosition[3]=objectFeatureBall[i][0];
+		ControlTaskParameters.obstFrames[0].cartesianPosition[4]=objectFeatureBall[i][1];
+		ControlTaskParameters.obstFrames[0].cartesianPosition[5]=objectFeatureBall[i][2];
+		ControlTaskParameters.obstHeights[0]=objectFeatureBall[i][3];
+
+		cout<<"objectFeatureBall[i][0]: "<<objectFeatureBall[0][0]<<endl;
+		cout<<"cartesianPosition[3]: "<<ControlTaskParameters.obstFrames[0].cartesianPosition[3]<<endl;
+//		ControlTaskParameters.obstHeights.push_back()
+	}
+}
+	pub_ctrl_task_param.publish(ControlTaskParameters);
+	ROS_INFO("Publishing Control Task Parameters...");
+}
+
+void API_PITT::boundBoxSphere( const TrackedShape& outShape,const int index){
+	cout<<"boundBoxSphere"<<endl;
+	cout<<outShape.x_est_centroid<<" "<<outShape.y_est_centroid<<" "<<outShape.z_est_centroid<<endl;
+	cout<<outShape.coefficients[0]<<" "<<outShape.coefficients[1]<<" "<<outShape.coefficients[2]<<" "<<outShape.coefficients[3]<<" "<<endl;
+
+	objectFeatureBox[index][0]=outShape.x_est_centroid; //! center_x
+	objectFeatureBox[index][1]=outShape.y_est_centroid;//! center_y
+	objectFeatureBox[index][2]=outShape.z_est_centroid;//! center_z
+	objectFeatureBox[index][3]=outShape.coefficients[3]*2.0*obstacleSafetyFactorX;//! size_x,
+	objectFeatureBox[index][4]=outShape.coefficients[3]*2.0*obstacleSafetyFactorY;//! size_y
+	objectFeatureBox[index][5]=outShape.coefficients[3]*2.0*obstacleSafetyFactorZ;//! size_z
+//! outShape.coefficients[3] is the radius of the sphere, for the path planner we need the size of the box
+}
+
+void API_PITT::boundBoxCylinder( const TrackedShape& outShape,const int index){
+	cout<<"boundBoxCylinder"<<endl;
+	cout<<outShape.x_est_centroid<<" "<<outShape.y_est_centroid<<" "<<outShape.z_est_centroid<<endl;
+	cout<<outShape.coefficients[0]<<" "<<outShape.coefficients[1]<<" "<<outShape.coefficients[2]<<endl;
+	cout<<outShape.coefficients[3]<<" "<<outShape.coefficients[4]<<" "<<outShape.coefficients[5]<<" "<<endl;
+	cout<<outShape.coefficients[6]<<endl;
+//  assumption (simplification): we consider that the main axis of the cylinder is in parallel to z-axis (later also consider x,y direction);
+
+	objectFeatureBox[index][0]=outShape.x_est_centroid; //! center_x
+	objectFeatureBox[index][1]=outShape.y_est_centroid;//! center_y
+	objectFeatureBox[index][2]=outShape.z_est_centroid;//! center_z
+//	objectFeatureBox[index][3]=outShape.coefficients[3]*2.0;//! size_x,
+//	objectFeatureBox[index][4]=outShape.coefficients[3]*2.0;//! size_x
+//	objectFeatureBox[index][5]=outShape.coefficients[3]*2.0;//! size_x
+//! outShape.coefficients[3] is the radius of the sphere, for the path planner we need the size of the box
+
+}
+void API_PITT::boundBallSphere(const TrackedShape& outShape,const int index){
+	cout<<"boundBallSphere"<<endl;
+	objectFeatureBall[index][0]=outShape.x_est_centroid-0.2; //! center_x
+	objectFeatureBall[index][1]=outShape.y_est_centroid+0.2;//! center_y
+	objectFeatureBall[index][2]=outShape.z_est_centroid-outShape.coefficients[3];//! center_z
+	objectFeatureBall[index][3]=outShape.coefficients[3]*2.0*obstacleSafetyFactor;//! size_x,
+
+}
+void API_PITT::boundBallCylinder(const TrackedShape& outShape,const int index){
+
+
+
+}
+
+void API_PITT::ControlAckCallBack(const std_msgs::String::ConstPtr& msg) {
+	ROS_INFO("I heard Control Ack: [%s]", msg->data.c_str());
+	string hri_control_ack_msg;
+	hri_control_ack_msg=msg->data.c_str();
+
+
+//		cout<< "---------->>>>Control Ack Flag 0 is: "<<control_ack_flag[0]<<endl;
+//		cout<< "---------->>>>Control Ack Flag 1 is: "<<control_ack_flag[1]<<endl;
+		//hri_control_goal_flag=false;
+
+		if (hri_control_ack_msg=="hri_control_command_recieved_left"){// maybe can be commented!
+			hri_control_goal_flag[0]=false;
+			control_ack_flag[0]=true;
+//			cout<<"control_ack_flag[0]: "<<control_ack_flag[0]<<endl;
+//			cout<<"hri_control_goal_flag[0]: "<<hri_control_goal_flag[0]<<endl;
+//			cout<<"hri_control_goal_flag[1]: "<<hri_control_goal_flag[1]<<endl;
+
+		}
+		else if (hri_control_ack_msg=="hri_control_command_recieved_right"){// maybe can be commented!
+			hri_control_goal_flag[1]=false;
+			control_ack_flag[1]=true;
+
+		}
+		else if (hri_control_ack_msg=="hri_control_command_recieved_bimanual"){// maybe can be commented!
+			hri_control_goal_flag[2]=false;
+			control_ack_flag[2]=true;
+		}
+		else if (hri_control_ack_msg=="GoalReachedLeft")
+		{
+			rob_goal_reach_flag[0]=false;
+			hri_control_goal_flag[0]=true;
+		}
+		else if (hri_control_ack_msg=="GoalReachedRight")
+		{
+			rob_goal_reach_flag[1]=false;
+			hri_control_goal_flag[1]=true;
+		}
+		else if (hri_control_ack_msg=="GoalReachedBiManual")
+		{
+			rob_goal_reach_flag[2]=false;
+			hri_control_goal_flag[2]=true;
+		}
+
+		else if (hri_control_ack_msg=="hri_control_command_Initialization"){// maybe can be commented!
+			control_ack_flag[0]=true;
+		}
+
+}

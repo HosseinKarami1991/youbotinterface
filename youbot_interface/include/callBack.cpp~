@@ -1,0 +1,85 @@
+
+#include "callBack.hpp"
+
+API_PITT::API_PITT(){
+	NoObjects=4;
+
+	objectFeature=new float* [NoObjects];
+	for (int i=0;i<NoObjects;i++){
+		objectFeature[i]=new float [6]; //! 6: 1-3: center ; 4-6: size
+	}
+
+	for (int i=0;i<NoObjects;i++)
+		for (int j=0;j<6;j++)
+			objectFeature[i][j]=0;
+	for(int i=0;i<6;i++) {
+		regionGoal[i]=0;
+		regionOperating[i]=0;
+	}
+
+
+//	sub_shapes	=nh.subscribe("ransac_segmentation/trackedShapes",10, &API_PITT::CallBackShapes, this);
+}
+API_PITT::~API_PITT(){
+	for(int i=0;i<NoObjects;i++)
+		delete [] objectFeature[i];
+	delete [] objectFeature;
+}
+
+/*
+void API_PITT::CallBackShapes(const TrackedShapes& outShapes){
+//	TrackedShape::Ptr outShape  ( new TrackedShape);
+	 TrackedShape::Ptr outShape ( new TrackedShape);
+// iterate vectors to get each of the
+//	for (list<TrackedShapes::Ptr>::iterator it=outShapes.tracked_shapes.begin(); it != outShapes.tracked_shapes.end(); ++it)
+
+	//cout<<outShapes.tracked_shapes.size()<<endl;
+//		outShape=outShapes.tracked_shapes[1];
+//		->object_id
+	 int obj_counter=0; //! No of objects that ransac recognize and is not unknown
+	for (int i=0;i<outShapes.tracked_shapes.size();i++){
+		cout<<outShapes.tracked_shapes[i].shape_tag<<endl;
+
+
+		if (outShapes.tracked_shapes[i].shape_tag=="sphere")
+			boundBoxSphere(outShapes.tracked_shapes[i],obj_counter);
+		if (outShapes.tracked_shapes[i].shape_tag=="cylinder")
+			boundBoxCylinder(outShapes.tracked_shapes[i],obj_counter);
+
+		if (outShapes.tracked_shapes[i].shape_tag!="unknown")
+					obj_counter++;
+
+	}
+	cout<<"===================="<<endl;
+}
+void API_PITT::boundBoxSphere( const TrackedShape& outShape,const int index){
+	cout<<"boundBoxSphere"<<endl;
+	cout<<outShape.x_est_centroid<<" "<<outShape.y_est_centroid<<" "<<outShape.z_est_centroid<<endl;
+	cout<<outShape.coefficients[0]<<" "<<outShape.coefficients[1]<<" "<<outShape.coefficients[2]<<" "<<outShape.coefficients[3]<<" "<<endl;
+
+	objectFeature[index][0]=outShape.x_est_centroid; //! center_x
+	objectFeature[index][1]=outShape.y_est_centroid;//! center_y
+	objectFeature[index][2]=outShape.z_est_centroid;//! center_z
+	objectFeature[index][3]=outShape.coefficients[3]*2.0;//! size_x,
+	objectFeature[index][4]=outShape.coefficients[3]*2.0;//! size_x
+	objectFeature[index][5]=outShape.coefficients[3]*2.0;//! size_x
+//! outShape.coefficients[3] is the radius of the sphere, for the path planner we need the size of the box
+}
+
+void API_PITT::boundBoxCylinder( const TrackedShape& outShape,const int index){
+	cout<<"boundBoxCylinder"<<endl;
+	cout<<outShape.x_est_centroid<<" "<<outShape.y_est_centroid<<" "<<outShape.z_est_centroid<<endl;
+	cout<<outShape.coefficients[0]<<" "<<outShape.coefficients[1]<<" "<<outShape.coefficients[2]<<endl;
+	cout<<outShape.coefficients[3]<<" "<<outShape.coefficients[4]<<" "<<outShape.coefficients[5]<<" "<<endl;
+	cout<<outShape.coefficients[6]<<endl;
+//  assumption (simplification): we consider that the main axis of the cylinder is in parallel to z-axis (later also consider x,y direction);
+
+	objectFeature[index][0]=outShape.x_est_centroid; //! center_x
+	objectFeature[index][1]=outShape.y_est_centroid;//! center_y
+	objectFeature[index][2]=outShape.z_est_centroid;//! center_z
+//	objectFeature[index][3]=outShape.coefficients[3]*2.0;//! size_x,
+//	objectFeature[index][4]=outShape.coefficients[3]*2.0;//! size_x
+//	objectFeature[index][5]=outShape.coefficients[3]*2.0;//! size_x
+//! outShape.coefficients[3] is the radius of the sphere, for the path planner we need the size of the box
+
+}*/

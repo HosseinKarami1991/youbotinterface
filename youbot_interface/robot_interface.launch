@@ -1,0 +1,7 @@
+<launch>
+  <node name="robot_display"	pkg="youbot_interface"  		type="robot_display.py"  		/> <!--	output="screen" respawn="false" -->
+  <node name="youbotInterface"	pkg="youbot_interface"  		type="youbotInterface"     args="-v"	output="screen" respawn="false" />
+</launch>
+
+
+
